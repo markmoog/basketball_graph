@@ -1,9 +1,13 @@
-import basketball_graph
-import os
-import streams
-import strutils
 import neo
+import basketball_graph
+import stats
+import os
+import strutils
+import random
+import streams
 import system
+import utils
+
 
 proc write_distance_matrix(config_path: string): void =
   var
@@ -13,6 +17,7 @@ proc write_distance_matrix(config_path: string): void =
     max_depth: int
 
   let config_data = new_file_stream(config_path, fm_read).readAll()
+
   if config_data == nil:
     quit("Cannot open configuration file")
 
@@ -41,7 +46,10 @@ proc write_distance_matrix(config_path: string): void =
     quit("Configuration parameters either not present or unallowed")
 
   echo("Constructing matrix with maximum depth " & int_to_str(max_depth))
-  let d_mat = build_distance_matrix(games_path, teams_path, max_depth)
+  let teams = load_teams(teams_path)
+  let graph = build_graph(games_path, teams)
+
+  let d_mat = build_distance_matrix(graph, max_depth)
 
   echo("Writing data to file")
   var file_stream = new_file_stream(output_path, fmWrite)
@@ -49,7 +57,7 @@ proc write_distance_matrix(config_path: string): void =
   for row in d_mat.rows:
     for col, item in row:
       file_stream.write(format_float(item))
-      if col < 351:
+      if col < <351:
         file_stream.write(",")
     file_stream.write("\n")
 
@@ -96,7 +104,14 @@ proc write_distance_array(config_path: string): void =
     quit("Configuration parameters either not present or unallowed")
 
   echo("Constructing matrix with maximum depth " & int_to_str(max_depth))
-  let d_array = build_distance_array(games_path, teams_path, source_name, sink_name, max_depth)
+  let teams = load_teams(teams_path)
+  let graph = build_graph(games_path, teams)
+
+  var source_id = teams.index_of(source_name)
+  var sink_id = teams.index_of(sink_name)
+
+  let d_array = build_distance_array(graph, teams, source_id, sink_id, max_depth)
+  # let d_array = build_distance_array(graph, teams, team_a, team_b, depth)
 
   echo("Writing data to file")
   var file_stream = new_file_stream(output_path, fmWrite)

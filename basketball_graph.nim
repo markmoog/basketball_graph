@@ -10,7 +10,6 @@ type Game* = tuple[home_id: int, away_id: int, margin: int]
 type Edge* = tuple[node: int, weight: float]
 type Graph*[nodes: static[int]] = array[0 .. <nodes, seq[Edge]]
 
-
 # Parses a game records file (format spec below) and output a graph of the games
 
 # Input File Format
@@ -138,18 +137,13 @@ proc build_graph*(url: string, teams: array[351, string]): Graph[351] =
 # calculated by traversing all paths of a given length connecting each pair
 # of teams in the graph and computing the average distance between them.
 
-proc build_distance_matrix*(games_url: string, teams_path: string, max_depth: int): Matrix[float64] =
+proc build_distance_matrix*(graph: Graph[351], max_depth: int): Matrix[float64] =
   let start_time = cpu_time()
-
-  # create local copies of the parameters so the can be used in the traverse_graph function
-  let max_depth = max_depth
-  let teams = load_teams(teams_path)
-  let graph: Graph[351] = build_graph(games_url, teams)
 
   var distance_matrix: Matrix[float64] = zeros(351, 351)
   var path_count_matrix: Matrix[float64] = zeros(351, 351)
 
-  proc traverse_graph(current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq): void =
+  proc traverse_graph(graph: Graph[351], current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
     let depth = depth + 1
     let visited_nodes = visited_nodes & current_node
 
@@ -162,7 +156,7 @@ proc build_distance_matrix*(games_url: string, teams_path: string, max_depth: in
             distance_matrix[visited_nodes[0], child_node.node] = distance_matrix[visited_nodes[0], child_node.node] + cumulative_distance
             path_count_matrix[visited_nodes[0], child_node.node] = path_count_matrix[visited_nodes[0], child_node.node] + 1
         else:
-          traverse_graph(child_node.node, cumulative_distance, depth, visited_nodes)
+          traverse_graph(graph, child_node.node, cumulative_distance, depth, visited_nodes, max_depth)
 
   # Loop through every team, this will double-count all paths but oh well. We
   # will fill in each half of the matrix seperately even though it is
@@ -170,7 +164,7 @@ proc build_distance_matrix*(games_url: string, teams_path: string, max_depth: in
   for i in countup(0, <351):
     # Find all paths of length max_depth that start (or end depending on how you
     # look at it) at node i, add path distances to distance matrix.
-    traverse_graph(i, 0.0, 0, newSeq[int](0))
+    traverse_graph(graph, i, 0.0, 0, newSeq[int](0), max_depth)
 
   # Calculate averages
   for r in countup(0, <351):
@@ -188,21 +182,15 @@ proc build_distance_matrix*(games_url: string, teams_path: string, max_depth: in
 # containing the cumulative distances of each path between the teams with the
 # specified path length.
 
-proc build_distance_array*(games_url: string, teams_path: string, source_team: string, sink_team: string, max_depth: int): seq =
+proc build_distance_array*(graph: Graph[351], teams: array[351, string], source_node: int, sink_node: int, max_depth: int): seq[float] =
   let start_time = cpu_time()
 
-  let max_depth = max_depth
-  let teams = load_teams(teams_path)
-  let graph: Graph[351] = build_graph(games_url, teams)
-  let source_node = teams.index_of(source_team)
-  let sink_node = teams.index_of(sink_team)
-
   if source_node == -1 or sink_node == -1:
-    quit("SOurce or sink team is not listed in teams file.")
+    quit("Source or sink team is not listed in teams file.")
 
   var distances = newSeq[float](0)
 
-  proc traverse_graph(current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq): void =
+  proc traverse_graph(graph: Graph[351], teams: array[351, string], sink_node: int, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
     let depth = depth + 1
     let visited_nodes = visited_nodes & current_node
 
@@ -215,9 +203,9 @@ proc build_distance_array*(games_url: string, teams_path: string, source_team: s
           if child_node.node == sink_node:
             distances.add(cumulative_distance)
         elif child_node.node != sink_node:
-          traverse_graph(child_node.node, cumulative_distance, depth, visited_nodes)
+          traverse_graph(graph, teams, sink_node, child_node.node, cumulative_distance, depth, visited_nodes, max_depth)
 
-  traverse_graph(source_node, 0.0, 0, newSeq[int](0))
+  traverse_graph(graph, teams, sink_node, source_node, 0.0, 0, newSeq[int](0), max_depth)
 
   echo("Distance array build time: " & format_float(cpu_time() - start_time))
   return distances
