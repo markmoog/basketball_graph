@@ -8,7 +8,7 @@ import times
 
 type Game* = tuple[home_id: int, away_id: int, margin: int]
 type Edge* = tuple[node: int, weight: float]
-type Graph*[nodes: static[int]] = array[0 .. <nodes, seq[Edge]]
+type Graph* = seq[seq[Edge]]
 
 # Parses a game records file (format spec below) and output a graph of the games
 
@@ -21,7 +21,7 @@ type Graph*[nodes: static[int]] = array[0 .. <nodes, seq[Edge]]
 #   For example: N means the game was on a neutral court, 3 would mean the game
 #   had 3 overtimes, and N3 means the game was neutral and had 3 overtimes.
 
-proc load_games*(url: string, teams: array[351, string]): seq[Game] =
+proc load_games*(url: string, teams: seq[string]): seq[Game] =
   let start_time = cpu_time()
 
   var game_data: string
@@ -65,7 +65,7 @@ proc load_games*(url: string, teams: array[351, string]): seq[Game] =
 # overall analysis such as games against non-D1 teams that may be present in
 # game records file.
 
-proc load_teams*(file_path: string): array[351, string] =
+proc load_teams*(file_path: string): seq[string] =
   let start_time = cpu_time()
 
   let team_stream = new_file_stream(file_path, fm_read)
@@ -75,13 +75,11 @@ proc load_teams*(file_path: string): array[351, string] =
   var parser: CSV_Parser
   open(parser, team_stream, file_path)
 
-  var teams: array[351, string]
-  var idx: int = 0
+  var teams = new_seq[string](0)
   while read_row(parser):
     for t in parser.row:
       if not isNilOrWhitespace(t):
-        teams[idx] = t
-        inc idx
+        teams.add(t)
 
   echo("Team load time: " & format_float(cpu_time() - start_time))
   return teams
@@ -91,15 +89,17 @@ proc load_teams*(file_path: string): array[351, string] =
 # well as a list of the team names (which need to be identical to the names of
 # interest in the game records file) and creates a graph of the games.
 
-proc build_graph*(url: string, teams: array[351, string]): Graph[351] =
+proc build_graph*(url: string, teams: seq[string]): Graph =
   let start_time = cpu_time()
+
+  let size = len(teams)
 
   # Create intermediate matrices that will be used to build the graph. These are
   # needed so teams that play each other multiple times during the season do not
   # have multiple edges between them in the graph. They will have one edge with
   # a weight that is the average of the score differential of all the games.
-  var distance_matrix = zeros(351, 351)
-  var path_count_matrix = zeros(351, 351)
+  var distance_matrix = zeros(size, size)
+  var path_count_matrix = zeros(size, size)
 
   let games = load_games(url, teams)
   for game in games:
@@ -111,16 +111,16 @@ proc build_graph*(url: string, teams: array[351, string]): Graph[351] =
 
   # If teams played multiple times we average their score differential so there
   # is at most one edge between teams.
-  for r in countup(0, <351):
-     for c in countup(0, <351):
+  for r in countup(0, <size):
+     for c in countup(0, <size):
        if path_count_matrix[r, c] != 0:
          distance_matrix[r, c] = distance_matrix[r, c] / path_count_matrix[r, c]
 
   # Build a graph from the intermediate matrices
-  var graph: Graph[351]
+  var graph: Graph = new_seq[seq[Edge]](size)
 
-  for home_node in countup(0, <351):
-    for away_node in countup(0, <351):
+  for home_node in countup(0, <size):
+    for away_node in countup(0, <size):
       if path_count_matrix[home_node, away_node] != 0:
         let edge: Edge = (away_node, distance_matrix[home_node, away_node])
         if graph[home_node] == nil:
@@ -137,13 +137,14 @@ proc build_graph*(url: string, teams: array[351, string]): Graph[351] =
 # calculated by traversing all paths of a given length connecting each pair
 # of teams in the graph and computing the average distance between them.
 
-proc build_distance_matrix*(graph: Graph[351], max_depth: int): Matrix[float64] =
+proc build_distance_matrix*(graph: Graph, max_depth: int): Matrix[float64] =
   let start_time = cpu_time()
+  let size: int = len(graph)
 
-  var distance_matrix: Matrix[float64] = zeros(351, 351)
-  var path_count_matrix: Matrix[float64] = zeros(351, 351)
+  var distance_matrix: Matrix[float64] = zeros(size, size)
+  var path_count_matrix: Matrix[float64] = zeros(size, size)
 
-  proc traverse_graph(graph: Graph[351], current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
+  proc traverse_graph(graph: Graph, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
     let depth = depth + 1
     let visited_nodes = visited_nodes & current_node
 
@@ -161,13 +162,13 @@ proc build_distance_matrix*(graph: Graph[351], max_depth: int): Matrix[float64] 
   # Loop through every team, this will double-count all paths but oh well. We
   # will fill in each half of the matrix seperately even though it is
   # antisymmetric.
-  for i in countup(0, <351):
+  for i in countup(0, <size):
     # Find all paths of length max_depth that start (or end depending on how you
     # look at it) at node i, add path distances to distance matrix.
     traverse_graph(graph, i, 0.0, 0, newSeq[int](0), max_depth)
 
   # Calculate averages
-  for r in countup(0, <351):
+  for r in countup(0, <size):
     for c in countup(0, <r):
       if path_count_matrix[r, c] != 0:
         let d = distance_matrix[r, c] / path_count_matrix[r, c]
@@ -182,7 +183,7 @@ proc build_distance_matrix*(graph: Graph[351], max_depth: int): Matrix[float64] 
 # containing the cumulative distances of each path between the teams with the
 # specified path length.
 
-proc build_distance_array*(graph: Graph[351], teams: array[351, string], source_node: int, sink_node: int, max_depth: int): seq[float] =
+proc build_distance_array*(graph: Graph, source_node: int, sink_node: int, max_depth: int): seq[float] =
   let start_time = cpu_time()
 
   if source_node == -1 or sink_node == -1:
@@ -190,7 +191,7 @@ proc build_distance_array*(graph: Graph[351], teams: array[351, string], source_
 
   var distances = newSeq[float](0)
 
-  proc traverse_graph(graph: Graph[351], teams: array[351, string], sink_node: int, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
+  proc traverse_graph(graph: Graph, max_depth: int, sink_node: int, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq): void =
     let depth = depth + 1
     let visited_nodes = visited_nodes & current_node
 
@@ -203,9 +204,9 @@ proc build_distance_array*(graph: Graph[351], teams: array[351, string], source_
           if child_node.node == sink_node:
             distances.add(cumulative_distance)
         elif child_node.node != sink_node:
-          traverse_graph(graph, teams, sink_node, child_node.node, cumulative_distance, depth, visited_nodes, max_depth)
+          traverse_graph(graph, max_depth , sink_node, child_node.node, cumulative_distance, depth, visited_nodes)
 
-  traverse_graph(graph, teams, sink_node, source_node, 0.0, 0, newSeq[int](0), max_depth)
+  traverse_graph(graph, max_depth, sink_node, source_node, 0.0, 0, new_seq[int](0))
 
   echo("Distance array build time: " & format_float(cpu_time() - start_time))
   return distances

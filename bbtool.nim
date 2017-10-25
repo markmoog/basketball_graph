@@ -57,7 +57,7 @@ proc write_distance_matrix(config_path: string): void =
   for row in d_mat.rows:
     for col, item in row:
       file_stream.write(format_float(item))
-      if col < <351:
+      if col < <row.len:
         file_stream.write(",")
     file_stream.write("\n")
 
@@ -110,8 +110,7 @@ proc write_distance_array(config_path: string): void =
   var source_id = teams.index_of(source_name)
   var sink_id = teams.index_of(sink_name)
 
-  let d_array = build_distance_array(graph, teams, source_id, sink_id, max_depth)
-  # let d_array = build_distance_array(graph, teams, team_a, team_b, depth)
+  let d_array = build_distance_array(graph, source_id, sink_id, max_depth)
 
   echo("Writing data to file")
   var file_stream = new_file_stream(output_path, fmWrite)
