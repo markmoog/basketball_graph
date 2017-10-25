@@ -25,14 +25,14 @@ proc load_games*(url: string, teams: seq[string]): seq[Game] =
   let start_time = cpu_time()
 
   var game_data: string
-  var games = newSeq[Game](0)
+  var games = new_seq[Game](0)
 
   # Check to see if we load from either a website or a local file
   if url[0..4] == "http":
     let client = new_http_client()
     game_data = client.get_content(url)
   else:
-    game_data = new_file_stream(url, fm_read).readAll()
+    game_data = new_file_stream(url, fm_read).read_all()
 
   # Loop through all games and fill temporary matrices
   for line in split_lines(game_data):
@@ -78,7 +78,7 @@ proc load_teams*(file_path: string): seq[string] =
   var teams = new_seq[string](0)
   while read_row(parser):
     for t in parser.row:
-      if not isNilOrWhitespace(t):
+      if not is_nil_or_whitespace(t):
         teams.add(t)
 
   echo("Team load time: " & format_float(cpu_time() - start_time))
@@ -165,7 +165,7 @@ proc build_distance_matrix*(graph: Graph, max_depth: int): Matrix[float64] =
   for i in countup(0, <size):
     # Find all paths of length max_depth that start (or end depending on how you
     # look at it) at node i, add path distances to distance matrix.
-    traverse_graph(graph, i, 0.0, 0, newSeq[int](0), max_depth)
+    traverse_graph(graph, i, 0.0, 0, new_seq[int](0), max_depth)
 
   # Calculate averages
   for r in countup(0, <size):
@@ -189,7 +189,7 @@ proc build_distance_array*(graph: Graph, source_node: int, sink_node: int, max_d
   if source_node == -1 or sink_node == -1:
     quit("Source or sink team is not listed in teams file.")
 
-  var distances = newSeq[float](0)
+  var distances = new_seq[float](0)
 
   proc traverse_graph(graph: Graph, max_depth: int, sink_node: int, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq): void =
     let depth = depth + 1

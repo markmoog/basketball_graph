@@ -16,7 +16,7 @@ proc write_distance_matrix(config_path: string): void =
     output_path: string
     max_depth: int
 
-  let config_data = new_file_stream(config_path, fm_read).readAll()
+  let config_data = new_file_stream(config_path, fm_read).read_all()
 
   if config_data == nil:
     quit("Cannot open configuration file")
@@ -71,7 +71,7 @@ proc write_distance_array(config_path: string): void =
     sink_name: string
     max_depth: int
 
-  let config_data = new_file_stream(config_path, fm_read).readAll()
+  let config_data = new_file_stream(config_path, fm_read).read_all()
   if config_data == nil:
     quit("Cannot open configuration file")
 
@@ -103,7 +103,7 @@ proc write_distance_array(config_path: string): void =
   if games_path == nil or teams_path == nil or output_path == nil or source_name == nil or sink_name == nil or max_depth == 0:
     quit("Configuration parameters either not present or unallowed")
 
-  echo("Constructing matrix with maximum depth " & int_to_str(max_depth))
+  echo("Constructing array with maximum depth " & int_to_str(max_depth))
   let teams = load_teams(teams_path)
   let graph = build_graph(games_path, teams)
 
