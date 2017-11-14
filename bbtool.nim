@@ -1,58 +1,31 @@
 import neo
 import basketball_graph
-import stats
 import os
 import strutils
-import random
 import streams
-import system
 import utils
+import tables
 
 
-proc write_distance_matrix(config_path: string): void =
-  var
-    games_path: string
-    teams_path: string
-    output_path: string
-    max_depth: int
+# Parameters should be contained in a config file, who's path is passed from the
+# command line. The following parameters are expected:
+# games path: ... the path to the file containing game data
+# teams path: ... the path to the file containing team names
+# output path: ... the path to the file where output is saved
+# max depth: ... the traversal depth of the graph used to generate output
+# sink name: ... only for generating distance arrays, name of the sink team
+# source name: ... only for generating distance arrays, name of the source team
 
-  let config_data = new_file_stream(config_path, fm_read).read_all()
 
-  if config_data == nil:
-    quit("Cannot open configuration file")
+proc write_distance_matrix(config: Table_Ref): void =
+  echo("Constructing matrix with maximum depth " & config["max depth"])
 
-  # Read the config file
-  for line in split_lines(config_data):
-    let key_value= split(line, ':')
-    if key_value.len != 2:
-      continue
-    let key: string = key_value[0]
-    let value: string = key_value[1]
-
-    case key:
-      of "Games File":
-        games_path = value.strip()
-      of "Teams File":
-        teams_path = value.strip()
-      of "Output File":
-        output_path = value.strip()
-      of "Maximum Depth":
-        max_depth = value.strip().parse_int()
-      else:
-        echo("Unrecognised entry in config")
-
-  # Make sure all required fields have been read
-  if games_path == nil or teams_path == nil or output_path == nil or max_depth == 0:
-    quit("Configuration parameters either not present or unallowed")
-
-  echo("Constructing matrix with maximum depth " & int_to_str(max_depth))
-  let teams = load_teams(teams_path)
-  let graph = build_graph(games_path, teams)
-
+  let graph = build_graph(config["games path"], config["teams path"])
+  let max_depth: int = parse_int(config["max depth"])
   let d_mat = build_distance_matrix(graph, max_depth)
 
   echo("Writing data to file")
-  var file_stream = new_file_stream(output_path, fmWrite)
+  var file_stream = new_file_stream(config["output path"], fmWrite)
 
   for row in d_mat.rows:
     for col, item in row:
@@ -62,76 +35,43 @@ proc write_distance_matrix(config_path: string): void =
     file_stream.write("\n")
 
 
-proc write_distance_array(config_path: string): void =
-  var
-    games_path: string
-    teams_path: string
-    output_path: string
-    source_name: string
-    sink_name: string
-    max_depth: int
+proc write_distance_array(config: Table_Ref): void =
+  echo("Constructing array with maximum depth " & config["max depth"])
 
-  let config_data = new_file_stream(config_path, fm_read).read_all()
-  if config_data == nil:
-    quit("Cannot open configuration file")
+  let teams = load_teams(config["teams path"])
+  let graph = build_graph(config["games path"], config["teams path"])
 
-  # Read the config file
-  for line in split_lines(config_data):
-    let key_value= split(line, ':')
-    if key_value.len != 2:
-      continue
-    let key: string = key_value[0]
-    let value: string = key_value[1]
-
-    case key:
-      of "Games File":
-        games_path = value.strip()
-      of "Teams File":
-        teams_path = value.strip()
-      of "Source Team":
-        source_name = value.strip()
-      of "Sink Team":
-        sink_name = value.strip()
-      of "Output File":
-        output_path = value.strip()
-      of "Maximum Depth":
-        max_depth = value.strip().parse_int()
-      else:
-        echo("Unrecognised entry in config")
-
-  # Make sure all required fields have been read
-  if games_path == nil or teams_path == nil or output_path == nil or source_name == nil or sink_name == nil or max_depth == 0:
-    quit("Configuration parameters either not present or unallowed")
-
-  echo("Constructing array with maximum depth " & int_to_str(max_depth))
-  let teams = load_teams(teams_path)
-  let graph = build_graph(games_path, teams)
-
-  var source_id = teams.index_of(source_name)
-  var sink_id = teams.index_of(sink_name)
+  let source_id = teams.index_of(config["source name"])
+  let sink_id = teams.index_of(config["sink name"])
+  let max_depth = parse_int(config["max depth"])
 
   let d_array = build_distance_array(graph, source_id, sink_id, max_depth)
 
   echo("Writing data to file")
-  var file_stream = new_file_stream(output_path, fmWrite)
+  var file_stream = new_file_stream(config["output path"], fmWrite)
 
   for d in d_array:
     file_stream.write(format_float(d) & ",\n")
 
 
-# Check the parameter string to determine what to do
+# Check the command line arguments string to determine what to do.
+# The first argument determines whether to generate an array of distances
+# between two teams (-a), or generate a matrix of average distances between all
+# teams (-m). The second argument is the path to a config file which determines
+# the parameters used to generate output.
 let function = param_str(1)
 let config_path = param_str(2)
+let config = load_config(config_path)
 
 case function:
   of "-m":
     echo("Distance matrix")
-    write_distance_matrix(config_path)
+    write_distance_matrix(config)
 
   of "-a":
     echo("Distance array")
-    write_distance_array(config_path)
+    write_distance_array(config)
 
   else:
-    echo("Bad parameters")
+    echo("Bad command line arguments")
 

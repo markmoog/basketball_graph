@@ -6,12 +6,12 @@ import utils
 import neo
 import times
 
-type Game* = tuple[home_id: int, away_id: int, margin: int]
+type Game* = tuple[home_id: int, away_id: int, margin: int, is_neutral: bool, date: Date]
 type Edge* = tuple[node: int, weight: float]
 type Graph* = seq[seq[Edge]]
 
-# Parses a game records file (format spec below) and output a graph of the games
 
+# Parses a game records file (format spec below) and output a graph of the games
 # Input File Format
 # Game date: characters 0 to 10
 # Home team name: characters 11 to 33
@@ -37,18 +37,22 @@ proc load_games*(url: string, teams: seq[string]): seq[Game] =
   # Loop through all games and fill temporary matrices
   for line in split_lines(game_data):
     if line.len() > 0:
-      # let date: string = line[0..10].strip()
+      let date: Date = line[0..10].strip().parse_date()
       let home_team: string = line[11 .. 33].strip()
       let home_score: int = line[34 .. 37].strip().parse_int()
       let away_team: string = line[38 .. 60].strip()
       let away_score: int = line[61 .. 64].strip().parse_int()
-      # let neutral_overtime: string = line[65..68]
+      let neutral_overtime: string = line[65..68]
 
       # Convert home_team and away_team from names to ids
       let home_id = teams.index_of(home_team)
       let away_id = teams.index_of(away_team)
 
-      let game: Game = (home_id, away_id, home_score - away_score)
+      # extract neutrality
+      let is_neutral = (neutral_overtime[0] == 'N')
+
+      let margin = home_score - away_score
+      let game: Game = (home_id, away_id, margin, is_neutral, date)
 
       # Make sure both teams are present in the 'teams' argument to this
       # funciton, then add their data to the intermediate matrices
@@ -58,8 +62,21 @@ proc load_games*(url: string, teams: seq[string]): seq[Game] =
   echo("Game loading time: " & format_float(cpu_time() - start_time))
   return games
 
-# Loads an array of comma seperated team names from a file.
 
+# Selects games which occured in the specified range of dates from all the
+# games in a sequence.
+
+proc in_range*(games: seq[Game], start_date: Date, end_date: Date): seq[Game] =
+  var selection = new_seq[Game]()
+
+  for game in games:
+    if game.date >= start_date and game.date <= end_date:
+      selection.add(game)
+
+  return selection
+
+
+# Loads an array of comma seperated team names from a file.
 # Only games where both teams are present in this file will be used to build the
 # graph. This can be used to exclude games against certain teams from the
 # overall analysis such as games against non-D1 teams that may be present in
@@ -85,11 +102,11 @@ proc load_teams*(file_path: string): seq[string] =
   return teams
 
 
-# This function takes a file location (either a URL or a local file path), as
-# well as a list of the team names (which need to be identical to the names of
-# interest in the game records file) and creates a graph of the games.
+# Takes a file location (either a URL or a local file path), as well as a list
+# of the team names (which need to be identical to the names of interest in the
+# game records file) and creates a graph of the games.
 
-proc build_graph*(url: string, teams: seq[string]): Graph =
+proc build_graph*(games: seq[Game], teams: seq[string]): Graph =
   let start_time = cpu_time()
 
   let size = len(teams)
@@ -101,7 +118,6 @@ proc build_graph*(url: string, teams: seq[string]): Graph =
   var distance_matrix = zeros(size, size)
   var path_count_matrix = zeros(size, size)
 
-  let games = load_games(url, teams)
   for game in games:
     distance_matrix[game.home_id, game.away_id] = distance_matrix[game.home_id, game.away_id] + float(game.margin)
     path_count_matrix[game.home_id, game.away_id] = path_count_matrix[game.home_id, game.away_id] + 1
@@ -130,6 +146,13 @@ proc build_graph*(url: string, teams: seq[string]): Graph =
 
   echo("Graph building time: " & format_float(cpu_time() - start_time))
   return graph
+
+
+proc build_graph*(games_url: string, teams_url: string): Graph =
+  let teams = load_teams(teams_url)
+  let games = load_games(games_url, teams)
+
+  return build_graph(games, teams)
 
 
 # Takes a path length and graph of teams as input and outputs a matrix of the
@@ -179,7 +202,55 @@ proc build_distance_matrix*(graph: Graph, max_depth: int): Matrix[float64] =
   return distance_matrix
 
 
-# Takes a graph of games, two teams an a path length, and returns an array
+# Determines the shortest path length s for the graph such that every pair of
+# nodes in the graph can be connected by a path of length s. Will not check for
+# path lengths greater than the depth limit.
+
+proc shortest_spanning_path*(graph: Graph, depth_limit: int): int =
+  let start_time = cpu_time()
+  let size: int = len(graph)
+
+  var max_depth: int = 1
+  while max_depth <= depth_limit:
+    var connection_matrix: Matrix[float64] = zeros(size, size)
+
+    proc traverse_graph(graph: Graph, current_node: int, cumulative_distance: float, depth: int, visited_nodes: seq, max_depth: int): void =
+      let depth = depth + 1
+      let visited_nodes = visited_nodes & current_node
+
+      for child_node in graph[current_node]:
+        if visited_nodes.index_of(child_node.node) == -1:
+          connection_matrix[visited_nodes[0], child_node.node] = 1
+
+          if depth == max_depth:
+              break
+          else:
+            traverse_graph(graph, child_node.node, cumulative_distance, depth, visited_nodes, max_depth)
+
+    for i in countup(0, <size):
+      traverse_graph(graph, i, 0.0, 0, new_seq[int](0), max_depth)
+
+    var fully_connected: bool = true
+
+    # Check to see if the connection_matrix has paths connecting every pair of nodes
+    for r in countup(0, <size):
+      for c in countup(0, <r):
+        if connection_matrix[r, c] == 0:
+          fully_connected = false
+          break
+
+    if fully_connected:
+      echo("Shortest spanning path time: " & format_float(cpu_time() - start_time))
+      return max_depth
+
+    # the graph is not spanned by the current path length, try the next path length
+    inc max_depth
+
+  echo("Shortest spanning path time (hit depth limit): " & format_float(cpu_time() - start_time))
+  return -1
+
+
+# Takes a graph of games, two teams, and a path length, and returns an array
 # containing the cumulative distances of each path between the teams with the
 # specified path length.
 
