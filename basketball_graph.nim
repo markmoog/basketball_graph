@@ -87,6 +87,7 @@ proc load_teams*(file_path: string): seq[string] =
 
   let team_stream = new_file_stream(file_path, fm_read)
   if team_stream == nil:
+    echo file_path
     quit("Cannot open the file.")
 
   var parser: CSV_Parser

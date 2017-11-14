@@ -32,8 +32,8 @@ proc load_config*(file_path: string): Table_Ref[string, string] =
     if key_value.len != 2:
       continue
 
-    let key: string = key_value[0]
-    let value: string = key_value[1]
+    let key: string = key_value[0].strip()
+    let value: string = key_value[1].strip()
 
     config_table[key] = value
 

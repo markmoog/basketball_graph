@@ -1,0 +1,6 @@
+games path: ./example/cbbga17.txt
+teams path: ./example/teams.txt
+output path: output.csv
+max depth: 4
+source name: Richmond
+sink name: VCU
